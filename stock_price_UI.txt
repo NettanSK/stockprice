@@ -1,0 +1,73 @@
+stock price prediction
+
+# 1. Importovanie potrebných knižníc
+
+
+import numpy as np          #Slúži na numerické výpočty a prácu s veľkými maticami (
+import pandas as pd         #spracovanie tabuľkových dát
+import matplotlib.pyplot as plt   # kreslenie grafov a vizualizáciu dát.
+from sklearn.preprocessing import MinMaxScaler  #škáluje dáta do určitého rozsahu, v tomto prípade medzi 0 a 1.
+from tensorflow.keras.models import Sequential  # spôsob vytvorenia modelu neurónovej siete.
+from tensorflow.keras.layers import Dense, LSTM  # Pridávajú vrstvy do neurónovej siete, kde LSTM je špecializovaná na časové rady (historické dáta).
+import yfinance as yf #  Stiahne historické finančné dáta
+
+# 2. Načítanie dát akcií z yfinance (Google podporuje alternatívu)
+
+
+data = yf.download('AAPL', start='2010-01-01', end='2023-12-05')    # Načíta historické dáta o cene akcií Apple (AAPL),  časový interval od roku 2010 po 2023.
+data = data[['Close']]    # Vyberá iba stĺpec "Close", ktorý obsahuje záverečné ceny akcií za každý deň.
+
+# 3. Normalizácia dát (škálovanie medzi 0 a 1)
+
+
+
+scaler = MinMaxScaler(feature_range=(0, 1))  # Normalizuje dáta (premení hodnoty na rozsah 0 až 1). To je dôležité pre neurónové siete, aby mohli lepšie pracovať s číslami.
+data['Close'] = scaler.fit_transform(data[['Close']])   #Aplikuje normalizáciu na stĺpec "Close". Po tejto operácii všetky ceny akcií budú v rozsahu od 0 po 1.
+
+# 4. Rozdelenie dát na tréningovú a testovaciu množinu
+
+
+
+
+training_size = int(len(data) * 0.8) #  Spočíta počet riadkov (počet dní) v našich dátach.  Rozdelí dáta na 80 % tréningových a 20 % testovacích dát.
+train_data = data[:training_size]  # Vyberie prvých 80 % dát na trénovanie modelu.
+test_data = data[training_size:]  # Zvyšných 20 % použije na testovanie modelu.
+
+# 5. Vytvorenie sekvencií (LSTM vyžaduje sekvenčné dáta)
+def create_sequences(dataset, look_back=60):      # Model sa bude pozerať na posledných 60 dní na predpovedanie ďalšieho dňa.
+    X, y = [], []
+    for i in range(len(dataset) - look_back):      #  Pre každý deň vytvorí vstupné a výstupné dáta.
+        X.append(dataset[i:i+look_back])    # Zoberie 60 dní ako vstupy (X).
+        y.append(dataset[i+look_back])    # Použije 61. deň ako cieľovú hodnotu (y).
+    return np.array(X), np.array(y)    # Premení zoznamy X a y na NumPy polia, aby ich LSTM vedel spracovať.
+
+look_back = 60
+X_train, y_train = create_sequences(train_data['Close'].values, look_back)
+X_test, y_test = create_sequences(test_data['Close'].values, look_back)
+
+# Reshape dát (LSTM očakáva 3D vstupy)
+X_train = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))  # #(počet vzoriek = počet sekvencií (príkladov),, dĺžka sekvencie = 60 dni, počet vlastností = 1 (každý deň má len jednu hodnotu - cenu akcie).)
+X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
+
+# 6. Vytvorenie modelu LSTM
+model = Sequential()   # Vytvorí prázdny model.
+model.add(LSTM(50, return_sequences=True, input_shape=(look_back, 1)))   #Pridá prvú LSTM vrstvu s 50 neurónmi. Vracia sekvencie (napr. 60 dní pre ďalšiu vrstvu).
+model.add(LSTM(50, return_sequences=False))    # Druhá LSTM vrstva vracia iba posledný výstup (1 hodnota).
+model.add(Dense(1))    # Posledná vrstva predikuje 1 hodnotu (cena akcie ďalší deň).
+ 7. Kompilácia a trénovanie modelu
+model.compile(optimizer='adam', loss='mean_squared_error')     # Nastaví algoritmus na učenie (adam) a funkciu straty (MSE).
+model.fit(X_train, y_train, epochs=10, batch_size=32, validation_data=(X_test, y_test), verbose=1) # Trénuje model na trénovacích dátach, epochs =  Model prejde všetky dáta 10-krát, vatch_size = Dáta spracováva po častiach po 32 príkladoch.
+
+#validation_data: Testuje model na testovacích dátach po každom epochu.
+8. Predikcia a vizualizácia
+y_pred = model.predict(X_test)
+y_pred = scaler.inverse_transform(y_pred)  # Prevod na pôvodné škálovanie
+y_test = scaler.inverse_transform(y_test.reshape(-1, 1)) #Premení predikované a skutočné hodnoty späť na pôvodné škálovanie
+# 9. Zobrazenie výsledkov
+plt.figure(figsize=(10, 6))    # Vykreslí dva grafy
+plt.plot(range(len(y_test)), y_test, label="Skutočné ceny")  # Skutočné ceny (y_test).
+plt.plot(range(len(y_pred)), y_pred, label="Predikované ceny") #Predikované ceny (y_pred).
+plt.xlabel("Dni")
+plt.ylabel("Cena akcie (USD)")
+plt.legend()
+plt.show()
